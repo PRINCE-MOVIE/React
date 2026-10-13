@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auto Réactions · Chaîne</title>
+<style>
+  :root{--bg:#0b141a;--card:#111b21;--line:#222d34;--green:#25d366;--txt:#e9edef;--mut:#8696a0}
+  *{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,Segoe UI,Roboto,sans-serif}
+  body{background:var(--bg);color:var(--txt);min-height:100vh;display:flex;justify-content:center;padding:18px}
+  .wrap{width:100%;max-width:480px;display:flex;flex-direction:column;gap:16px}
+  h1{font-size:22px;text-align:center}
+  h1 span{color:var(--green)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+  label{font-size:13px;color:var(--mut);display:block;margin-bottom:8px}
+  input[type=text]{width:100%;padding:13px;border-radius:12px;border:1px solid var(--line);background:#202c33;color:var(--txt);font-size:15px;outline:none}
+  input[type=text]:focus{border-color:var(--green)}
+  button{width:100%;margin-top:12px;padding:13px;border:0;border-radius:12px;background:var(--green);color:#052b14;font-weight:700;font-size:15px;cursor:pointer}
+  button:disabled{opacity:.5}
+  .status{margin-top:10px;font-size:13px;min-height:18px}
+  .ok{color:var(--green)} .err{color:#ff6b6b}
+  .emojis{display:flex;flex-wrap:wrap;gap:8px}
+  .emojis label{margin:0;cursor:pointer}
+  .emojis input{display:none}
+  .emojis span{display:inline-block;font-size:24px;padding:6px 9px;border-radius:12px;border:2px solid transparent;background:#202c33}
+  .emojis input:checked + span{border-color:var(--green);background:#12372a}
+  .chat{display:flex;flex-direction:column;gap:14px;max-height:340px;overflow:auto;margin-bottom:12px}
+  .msg{align-self:flex-end;max-width:85%}
+  .bubble{background:#005c4b;padding:9px 12px;border-radius:12px 12px 2px 12px;font-size:15px;word-break:break-word}
+  .reacts{display:flex;flex-wrap:wrap;gap:4px;margin-top:-6px;justify-content:flex-end;padding-right:6px}
+  .r{background:#202c33;border:1px solid var(--line);border-radius:12px;padding:2px 7px;font-size:14px;animation:pop .25s ease}
+  @keyframes pop{from{transform:scale(0)}to{transform:scale(1)}}
+  .send{display:flex;gap:8px}
+  .send button{width:auto;margin:0;padding:0 18px}
+  small{color:var(--mut);display:block;margin-top:8px;font-size:12px;line-height:1.4}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Auto <span>Réactions</span></h1>
+
+  <div class="card">
+    <label for="link">Lien de ta chaîne</label>
+    <input type="text" id="link" placeholder="https://whatsapp.com/channel/..." autocomplete="off">
+    <button id="connect">Connecter la chaîne</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="card" id="reactCard" style="display:none">
+    <label>Emojis utilisés pour les réactions</label>
+    <div class="emojis" id="emojis"></div>
+  </div>
+
+  <div class="card" id="chatCard" style="display:none">
+    <label>Chaîne connectée · envoie un message</label>
+    <div class="chat" id="chat"></div>
+    <div class="send">
+      <input type="text" id="msg" placeholder="Écris ton message...">
+      <button id="send">Envoyer</button>
+    </div>
+    <small id="modeNote"></small>
+  </div>
+</div>
+
+<script>
+/* ================= CONFIGURATION =================
+   API_URL : adresse de ton serveur/bot (ex: Baileys sur Termux, Render, etc.)
+   Laisse vide pour tester en MODE DÉMO (réactions simulées sur la page).
+   Routes attendues côté serveur :
+     POST /connect  { link }                        -> { ok:true, name:"..." }
+     POST /send     { link, text, reactions:[...] } -> { ok:true }
+================================================== */
+const API_URL = location.protocol === "file:" ? "" : location.origin;
+
+const EMOJIS = ["👍","❤️","😂","😮","😢","🙏","🔥","👏","🎉","💯"];
+const $ = id => document.getElementById(id);
+let channelLink = null, channelName = null;
+
+// Sélecteur d'emojis
+EMOJIS.forEach((e,i)=>{
+  const l=document.createElement("label");
+  l.innerHTML=`<input type="checkbox" value="${e}" ${i<5?"checked":""}><span>${e}</span>`;
+  $("emojis").appendChild(l);
+});
+const selected = () => [...document.querySelectorAll("#emojis input:checked")].map(i=>i.value);
+
+const validLink = u => /^https?:\/\/(www\.)?whatsapp\.com\/channel\/[A-Za-z0-9_-]+\/?$/.test(u.trim());
+function setStatus(t,c){const s=$("status");s.textContent=t;s.className="status "+(c||"")}
+
+$("connect").onclick = async () => {
+  const link = $("link").value.trim();
+  if(!validLink(link)){ setStatus("Lien invalide. Exemple : https://whatsapp.com/channel/XXXX","err"); return; }
+  $("connect").disabled = true; setStatus("Connexion...");
+  try{
+    if(API_URL){
+      const r = await fetch(API_URL+"/connect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({link,emojis:selected()})});
+      const j = await r.json();
+      if(!j.ok) throw new Error(j.error||"Échec de connexion");
+      setStatus("✅ Chaîne connectée : "+(j.name||""),"ok"); channelName=j.name;
+    } else { await new Promise(r=>setTimeout(r,700)); }
+    channelLink = link;
+    if(!API_URL) setStatus("✅ Chaîne connectée (démo)","ok");
+    $("reactCard").style.display = $("chatCard").style.display = "block";
+    $("modeNote").textContent = API_URL
+      ? "Les nouveaux messages de la chaîne reçoivent automatiquement une réaction (choisie parmi tes emojis)."
+      : "MODE DÉMO : aucun serveur configuré (API_URL vide), les réactions sont simulées ici.";
+  }catch(e){ setStatus("❌ "+e.message,"err"); }
+  $("connect").disabled = false;
+};
+
+$("send").onclick = sendMsg;
+$("msg").addEventListener("keydown",e=>{ if(e.key==="Enter") sendMsg(); });
+
+async function sendMsg(){
+  const text = $("msg").value.trim();
+  const reactions = selected();
+  if(!text || !channelLink) return;
+  if(!reactions.length){ setStatus("Choisis au moins une réaction","err"); return; }
+  $("msg").value = "";
+
+  const m = document.createElement("div"); m.className="msg";
+  m.innerHTML = `<div class="bubble"></div><div class="reacts"></div>`;
+  m.querySelector(".bubble").textContent = text;
+  $("chat").appendChild(m); $("chat").scrollTop = 1e6;
+
+  let shown = reactions;
+  if(API_URL){
+    shown = [];
+    try{
+      const r = await fetch(API_URL+"/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({link:channelLink,text})});
+      const j = await r.json();
+      if(!j.ok) setStatus("❌ "+j.error,"err"); else shown = j.reacted||[];
+    }catch(e){ setStatus("❌ Envoi impossible","err"); }
+  }
+  // Affichage des réactions réellement envoyées sous le message
+  const box = m.querySelector(".reacts");
+  shown.forEach((e,i)=>setTimeout(()=>{
+    const s=document.createElement("span"); s.className="r"; s.textContent=e; box.appendChild(s);
+    $("chat").scrollTop = 1e6;
+  }, 500 + i*450));
+}
+</script>
+</body>
+</html>
