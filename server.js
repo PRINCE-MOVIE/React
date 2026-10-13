@@ -10,6 +10,7 @@ const {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  Browsers,
 } = require('@whiskeysockets/baileys');
 
 const PORT = process.env.PORT || 3000;
@@ -30,21 +31,27 @@ async function start() {
     auth: state,
     logger: pino({ level: 'silent' }),
     printQRInTerminal: false,
-    browser: ['Reactions Chaine', 'Chrome', '1.0'],
+    browser: Browsers.ubuntu('Chrome'),
   });
 
   // Première connexion : code de jumelage (WhatsApp > Appareils connectés > Lier avec un numéro)
+  let pairingAsked = false;
   if (!sock.authState.creds.registered) {
-    if (!BOT_NUMBER) {
-      console.log('❌ Définis BOT_NUMBER (ex: BOT_NUMBER=509XXXXXXXX node server.js)');
+    if (!/^\d{10,15}$/.test(BOT_NUMBER)) {
+      console.log('❌ BOT_NUMBER invalide. Format : indicatif pays + numéro, chiffres seulement.');
+      console.log('   Exemple Haïti : BOT_NUMBER=50931234567 (sans +, sans espaces, sans 0 au début)');
       process.exit(1);
     }
-    setTimeout(async () => {
+    // On demande le code seulement quand WhatsApp est prêt (événement "qr")
+    sock.ev.on('connection.update', async ({ qr }) => {
+      if (!qr || pairingAsked) return;
+      pairingAsked = true;
       try {
         const code = await sock.requestPairingCode(BOT_NUMBER);
-        console.log('🔑 CODE DE JUMELAGE :', code);
+        const nice = code.match(/.{1,4}/g).join('-');
+        console.log('🔑 CODE DE JUMELAGE :', nice, ' (pour le numéro ' + BOT_NUMBER + ')');
       } catch (e) { console.log('Erreur code de jumelage :', e.message); }
-    }, 3000);
+    });
   }
 
   sock.ev.on('creds.update', saveCreds);
